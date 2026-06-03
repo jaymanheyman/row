@@ -13,11 +13,13 @@
     const syncedKeys = (config && config.syncedKeys) || [];
     const syncedPrefixes = (config && config.syncedPrefixes) || [];
     const onApplied = config && config.onApplied;
+    const preserveLocalKeys = (config && config.preserveLocalKeys) || [];
     if (!appKey || !window.supabase) return;
     if (!SUPABASE_URL || !SUPABASE_KEY) return;
     if (SUPABASE_URL.indexOf('PASTE-') === 0 || SUPABASE_KEY.indexOf('PASTE-') === 0) return;
 
     let supa = null, pushTimer = null, suppressSync = false, lastSyncedJson = null;
+    let preservedLocalDuringApply = false;
 
     function matches(k) {
       if (!k) return false;
@@ -44,6 +46,25 @@
       }
       return out;
     }
+    function isNonEmptyValue(value) {
+      if (Array.isArray(value)) return value.length > 0;
+      if (value && typeof value === 'object') return Object.keys(value).length > 0;
+      return value !== null && value !== undefined && value !== '';
+    }
+    function readLocalParsed(k) {
+      const raw = localStorage.getItem(k);
+      if (raw == null) return { exists: false, value: null };
+      try { return { exists: true, value: JSON.parse(raw) }; }
+      catch (e) { return { exists: true, value: raw }; }
+    }
+    function shouldPreserveLocal(k, incomingValue) {
+      if (preserveLocalKeys.indexOf(k) === -1) return false;
+      if (isNonEmptyValue(incomingValue)) return false;
+      const local = readLocalParsed(k);
+      const preserve = local.exists && isNonEmptyValue(local.value);
+      if (preserve) preservedLocalDuringApply = true;
+      return preserve;
+    }
     const origSet = localStorage.setItem.bind(localStorage);
     const origRemove = localStorage.removeItem.bind(localStorage);
     localStorage.setItem = function (k, v) {
@@ -58,17 +79,24 @@
       if (!remote || typeof remote !== 'object') return false;
       suppressSync = true;
       let changed = false;
+      preservedLocalDuringApply = false;
       try {
         for (const k of Object.keys(remote)) {
           if (!matches(k)) continue;
+          if (shouldPreserveLocal(k, remote[k])) continue;
           const incoming = JSON.stringify(remote[k]);
           const local = localStorage.getItem(k);
           if (local !== incoming) { try { origSet(k, incoming); changed = true; } catch (e) {} }
         }
         for (const k of listAllKeys()) {
+          if (preserveLocalKeys.indexOf(k) !== -1 && !(k in remote)) {
+            preservedLocalDuringApply = true;
+            continue;
+          }
           if (!(k in remote)) { try { origRemove(k); changed = true; } catch (e) {} }
         }
       } finally { suppressSync = false; }
+      if (preservedLocalDuringApply) schedulePush();
       if (changed && typeof onApplied === 'function') { try { onApplied(); } catch (e) {} }
       return changed;
     }
