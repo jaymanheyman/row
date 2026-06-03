@@ -1907,8 +1907,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   // STORAGE — localStorage shim. Same interface as the dashboard's
   // storeGet/storeSet so the existing render code drops straight in.
   // ============================================================
-  const FINANCE_PERSIST_KEYS = ['subs', 'wishlist', 'incoming_orders', 'nw_currency', 'nw:activity', 'nw:history', 'nw:bank', 'nw:stocks', 'nw:crypto', 'nw:other'];
-  const financeBackupCache = {};
+  const FINANCE_PERSIST_KEYS = ['finance_active_tab', 'subs', 'wishlist', 'incoming_orders', 'nw_currency', 'nw:activity', 'nw:history', 'nw:bank', 'nw:stocks', 'nw:crypto', 'nw:other'];
   function financeShouldPersistKey(key) {
     return FINANCE_PERSIST_KEYS.indexOf(key) !== -1;
   }
@@ -1920,76 +1919,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       return null;
     }
   }
-  function financeOpenBackupDb() {
-    if (!('indexedDB' in window)) return Promise.resolve(null);
-    return new Promise((resolve) => {
-      let req;
-      try { req = indexedDB.open('finance_persistence_v1', 1); }
-      catch (e) { resolve(null); return; }
-      req.onupgradeneeded = () => {
-        try { req.result.createObjectStore('kv'); } catch (e) {}
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
-    });
-  }
-  function financeBackupPut(key, value) {
-    if (!financeShouldPersistKey(key)) return;
-    financeBackupCache[key] = value;
-    financeOpenBackupDb().then((db) => {
-      if (!db) return;
-      try {
-        const tx = db.transaction('kv', 'readwrite');
-        tx.objectStore('kv').put(value, key);
-        tx.oncomplete = () => db.close();
-        tx.onerror = () => db.close();
-      } catch (e) { try { db.close(); } catch (_) {} }
-    });
-  }
-  function financeBackupGet(key) {
-    if (!financeShouldPersistKey(key)) return Promise.resolve(null);
-    if (key in financeBackupCache) return Promise.resolve(financeBackupCache[key]);
-    return financeOpenBackupDb().then((db) => new Promise((resolve) => {
-      if (!db) { resolve(null); return; }
-      try {
-        const tx = db.transaction('kv', 'readonly');
-        const req = tx.objectStore('kv').get(key);
-        req.onsuccess = () => {
-          financeBackupCache[key] = req.result;
-          resolve(req.result === undefined ? null : req.result);
-        };
-        req.onerror = () => resolve(null);
-        tx.oncomplete = () => db.close();
-        tx.onerror = () => db.close();
-      } catch (e) { try { db.close(); } catch (_) {} resolve(null); }
-    }));
-  }
-  function financeRestoreBackups() {
-    Promise.all(FINANCE_PERSIST_KEYS.map((key) => {
-      try { if (localStorage.getItem(key) != null) return Promise.resolve(false); }
-      catch (e) {}
-      return financeBackupGet(key).then((value) => {
-        if (value == null) return false;
-        try {
-          localStorage.setItem(key, JSON.stringify(value));
-          return true;
-        } catch (e) { return false; }
-      });
-    })).then((results) => {
-      if (results.some(Boolean)) {
-        window.dispatchEvent(new Event('storage'));
-      }
-    });
-  }
-  function financeBackupCurrentLocal() {
-    FINANCE_PERSIST_KEYS.forEach((key) => {
-      let raw = null;
-      try { raw = localStorage.getItem(key); } catch (e) {}
-      const value = financeParseStored(raw, key);
-      if (value != null) financeBackupPut(key, value);
-    });
-  }
   function storeGet(key) {
     let raw = null;
     try { raw = localStorage.getItem(key); }
@@ -1997,16 +1926,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       console.warn('Finance storage read failed for', key, e);
     }
     const parsed = financeParseStored(raw, key);
-    if (parsed != null) return parsed;
-    return financeShouldPersistKey(key) && key in financeBackupCache ? financeBackupCache[key] : null;
+    return parsed != null ? parsed : null;
   }
   function storeSet(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
-      financeBackupPut(key, value);
     } catch (e) {
       console.warn('Finance storage write failed for', key, e);
-      financeBackupPut(key, value);
     }
   }
 
@@ -3497,8 +3423,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     clearTimeout(financeStorageRenderTimer);
     financeStorageRenderTimer = setTimeout(renderFinanceFromStorage, 40);
   });
-  financeBackupCurrentLocal();
-  financeRestoreBackups();
 
 })();
 </script>
@@ -3507,10 +3431,13 @@ document.addEventListener('DOMContentLoaded', function () {
   if (typeof initCloudSync !== 'function') return;
   initCloudSync({
     appKey: 'finance',
-    syncedKeys: ['subs', 'wishlist', 'incoming_orders', 'nw_currency', 'nw:activity', 'nw:history'],
+    storageVersion: 'dashboard-storage-v1',
+    syncedKeys: ['finance_active_tab', 'subs', 'wishlist', 'incoming_orders', 'nw_currency', 'nw:activity', 'nw:history'],
     syncedPrefixes: ['nw:'],
-    preserveLocalKeys: ['subs', 'wishlist', 'incoming_orders', 'nw_currency', 'nw:activity', 'nw:history', 'nw:bank', 'nw:stocks', 'nw:crypto', 'nw:other'],
-    onApplied: function () { window.dispatchEvent(new Event('storage')); }
+    preserveLocalKeys: ['finance_active_tab', 'subs', 'wishlist', 'incoming_orders', 'nw_currency', 'nw:activity', 'nw:history', 'nw:bank', 'nw:stocks', 'nw:crypto', 'nw:other'],
+    preserveLocalPrefixes: ['nw:'],
+    onApplied: function () { window.dispatchEvent(new Event('storage')); },
+    onRestored: function () { window.dispatchEvent(new Event('storage')); }
   });
 });
 </script>

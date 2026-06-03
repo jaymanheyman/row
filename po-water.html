@@ -1134,8 +1134,11 @@ document.addEventListener('DOMContentLoaded', function () {
   if (typeof initCloudSync !== 'function') return;
   initCloudSync({
     appKey: 'health',
+    storageVersion: 'dashboard-storage-v1',
     syncedKeys: ['po_water_v1'],
-    onApplied: function () { window.dispatchEvent(new Event('storage')); }
+    preserveLocalKeys: ['po_water_v1'],
+    onApplied: function () { window.location.reload(); },
+    onRestored: function () { window.location.reload(); }
   });
 });
 </script>

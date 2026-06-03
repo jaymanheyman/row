@@ -19,6 +19,7 @@
 <meta name="apple-mobile-web-app-title" content="Dashboard">
 <meta name="msapplication-TileColor" content="#050506">
 <meta name="msapplication-config" content="/browserconfig.xml">
+<script src="sync.js"></script>
 <script src="topbar.js" defer></script>
 
 <!-- =============================================================
@@ -1703,6 +1704,18 @@ img, video, canvas, svg { max-width: 100%; }
 </div>
 
 <script>
+if (typeof initPersistentStorage === 'function') {
+  initPersistentStorage({
+    appKey: 'po-coach',
+    storageVersion: 'dashboard-storage-v1',
+    syncedKeys: ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos'],
+    preserveLocalKeys: ['po_coach_v1', 'po_coach_workout_done', 'po_coach_weights', 'po_coach_photos'],
+    onRestored: function () { window.location.reload(); }
+  });
+}
+</script>
+
+<script>
 (function() {
   // ============================================================
   // STATE — all logs + edits live in browser localStorage. Each
@@ -3373,6 +3386,17 @@ img, video, canvas, svg { max-width: 100%; }
     if (ae.getAttribute && ae.getAttribute('contenteditable') === 'true') return true;
     return false;
   }
+  function pcIsNonEmptyValue(value) {
+    if (Array.isArray(value)) return value.length > 0;
+    if (value && typeof value === 'object') return Object.keys(value).length > 0;
+    return value !== null && value !== undefined && value !== '';
+  }
+  function pcReadLocalParsed(k) {
+    const raw = localStorage.getItem(k);
+    if (raw == null) return { exists: false, value: null, raw: null };
+    try { return { exists: true, value: JSON.parse(raw), raw: raw }; }
+    catch { return { exists: true, value: null, raw: raw, corrupt: true }; }
+  }
 
   function pcRerender() {
     // Reload every closure variable that mirrors a synced localStorage
@@ -3393,12 +3417,17 @@ img, video, canvas, svg { max-width: 100%; }
     if (!remote || typeof remote !== 'object') return false;
     pcSuppressSync = true;
     let changed = false;
+    let preservedLocal = false;
     try {
       for (const k of PC_SYNCED_KEYS) {
         if (k === 'po_coach_photos') {
           let localPhotos = [];
           try { localPhotos = JSON.parse(localStorage.getItem(k) || '[]'); } catch {}
           const remotePhotos = Array.isArray(remote[k]) ? remote[k] : [];
+          if (!remotePhotos.length && localPhotos.length) {
+            preservedLocal = true;
+            continue;
+          }
           const remoteIds = new Set(remotePhotos.map((p) => p && p.id));
           const localOnly = localPhotos.filter((p) => p && !p.url && !remoteIds.has(p.id));
           const merged = [...remotePhotos, ...localOnly];
@@ -3409,16 +3438,27 @@ img, video, canvas, svg { max-width: 100%; }
           continue;
         }
         if (k in remote) {
+          const localParsed = pcReadLocalParsed(k);
+          if (!pcIsNonEmptyValue(remote[k]) && localParsed.exists && pcIsNonEmptyValue(localParsed.value)) {
+            preservedLocal = true;
+            continue;
+          }
           const incoming = JSON.stringify(remote[k]);
           const local = localStorage.getItem(k);
           if (local !== incoming) { try { _pcOrigSet(k, incoming); changed = true; } catch {} }
         } else if (localStorage.getItem(k) != null) {
+          const localParsed = pcReadLocalParsed(k);
+          if (localParsed.exists && pcIsNonEmptyValue(localParsed.value)) {
+            preservedLocal = true;
+            continue;
+          }
           try { _pcOrigRemove(k); changed = true; } catch {}
         }
       }
     } finally {
       pcSuppressSync = false;
     }
+    if (preservedLocal) pcSchedulePush();
     if (changed) { try { pcRerender(); } catch (e) {} }
     return changed;
   }

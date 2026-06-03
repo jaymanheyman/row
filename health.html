@@ -1053,9 +1053,13 @@ document.addEventListener('DOMContentLoaded', function () {
   if (typeof initCloudSync !== 'function') return;
   initCloudSync({
     appKey: 'health',
+    storageVersion: 'dashboard-storage-v1',
     syncedKeys: ['stack:items', 'stack:version', 'stack:low', 'po_water_v1'],
     syncedPrefixes: ['stack:taken:'],
-    onApplied: function () { window.dispatchEvent(new Event('storage')); }
+    preserveLocalKeys: ['stack:items', 'stack:version', 'stack:low', 'po_water_v1'],
+    preserveLocalPrefixes: ['stack:taken:'],
+    onApplied: function () { window.location.reload(); },
+    onRestored: function () { window.location.reload(); }
   });
 });
 </script>

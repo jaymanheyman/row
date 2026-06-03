@@ -1326,8 +1326,16 @@ document.addEventListener('DOMContentLoaded', function () {
   if (typeof initCloudSync !== 'function') return;
   initCloudSync({
     appKey: 'goals',
+    storageVersion: 'dashboard-storage-v1',
+    syncedKeys: ['goal_streak_v1'],
     syncedPrefixes: ['goals:'],
+    preserveLocalKeys: ['goal_streak_v1'],
+    preserveLocalPrefixes: ['goals:'],
     onApplied: function () {
+      window.dispatchEvent(new CustomEvent('goals-changed'));
+      window.dispatchEvent(new Event('storage'));
+    },
+    onRestored: function () {
       window.dispatchEvent(new CustomEvent('goals-changed'));
       window.dispatchEvent(new Event('storage'));
     }
